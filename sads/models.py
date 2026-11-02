@@ -54,6 +54,52 @@ def shrinkage_variance(x: FloatArray) -> float:
     return float(covariance.sum() / x.shape[1] ** 2)
 
 
+def sample_variance(x: FloatArray) -> float:
+    """Centered equal-weight portfolio variance, using the PCA divisor W."""
+    return float(np.var(x.mean(axis=1), ddof=0))
+
+
+def bayesian_variance(
+    x: FloatArray,
+    prior_shape: float = c.BAYES_PRIOR_SHAPE,
+    prior_scale: float = c.BAYES_PRIOR_SCALE,
+) -> float:
+    """Posterior mean variance under a zero-mean Gaussian working likelihood.
+
+    Use an inverse-gamma prior with density proportional to
+    v**(-shape-1) * exp(-scale/v). Defaults have prior mean variance 0.0001
+    (1% daily volatility), fixed independently of observed returns. Each call
+    updates this same prior from the supplied estimation window only.
+    """
+    if (
+        not np.isfinite(prior_shape) or prior_shape <= 1
+        or not np.isfinite(prior_scale) or prior_scale <= 0
+    ):
+        raise ValueError("Bayesian prior requires finite shape > 1 and scale > 0")
+    portfolio = x.mean(axis=1)
+    shape = prior_shape + len(portfolio) / 2
+    scale = prior_scale + float(portfolio @ portfolio) / 2
+    return scale / (shape - 1)
+
+
+def ewma_variance_path(
+    portfolio: FloatArray, window: int, decay: float = c.EWMA_DECAY
+) -> FloatArray:
+    """Return variance forecasts at t using only returns through t-1.
+
+    Initialize at t=window with centered first-window variance. Earlier entries
+    are undefined; subsequent updates use squared returns under zero mean.
+    """
+    values = np.asarray(portfolio, dtype=float)
+    if values.ndim != 1 or not 1 <= window < len(values) or not 0 < decay < 1:
+        raise ValueError("EWMA requires a vector, 1 <= window < n, and 0 < decay < 1")
+    variances = np.full(len(values), np.nan)
+    variances[window] = np.var(values[:window], ddof=0)
+    for i in range(window + 1, len(values)):
+        variances[i] = decay * variances[i - 1] + (1 - decay) * values[i - 1] ** 2
+    return variances
+
+
 def tail_forecast(
     variance: ArrayLike,
     distribution: Distribution = c.RETURN_DISTRIBUTION,

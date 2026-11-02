@@ -2,18 +2,29 @@
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 import json
+from importlib import metadata as package_metadata
 from pathlib import Path
+import platform
+import subprocess
 from typing import NamedTuple, TypeAlias, TypedDict
 
 import numpy as np
 import pandas as pd
 from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.figure import Figure
+from scipy.stats import norm
 from threadpoolctl import threadpool_limits
 
 from . import constants as c
 from .data import align_signals, fingerprint, load_returns, stress_releases
-from .models import pca_path, shrinkage_variance, tail_forecast
+from .models import (
+    bayesian_variance,
+    ewma_variance_path,
+    pca_path,
+    sample_variance,
+    shrinkage_variance,
+    tail_forecast,
+)
 from .selection import adaptive_path, best_rank, regime_rank, trailing_optimal_path
 from .statistics import (
     MCSResult,
@@ -21,6 +32,7 @@ from .statistics import (
     coverage,
     fz0,
     gw_test,
+    hac_covariance_mean,
     is_significant_improvement,
     model_confidence_set,
     rank_regime_test,
@@ -40,12 +52,15 @@ JSONValue: TypeAlias = (
 
 
 class CandidateForecasts(NamedTuple):
-    """Aligned metadata, per-rank tail forecasts/losses, and shrinkage variance."""
+    """Aligned metadata, per-rank forecasts/losses, and baseline variances."""
 
     metadata: pd.DataFrame
     risk: TailForecast
     loss: FloatArray
     shrinkage: FloatArray
+    sample: FloatArray
+    ewma: FloatArray
+    bayes: FloatArray
 
 
 class RobustnessResult(TypedDict):
@@ -100,6 +115,8 @@ class Config:
     volatility_window: int = c.VOLATILITY_WINDOW
     distribution: Distribution = c.RETURN_DISTRIBUTION
     student_df: float = c.STUDENT_DF
+    bayes_prior_shape: float = c.BAYES_PRIOR_SHAPE
+    bayes_prior_scale: float = c.BAYES_PRIOR_SCALE
     bootstrap_replications: int = c.BOOTSTRAP_REPLICATIONS
     bootstrap_block: int = c.BOOTSTRAP_BLOCK_LENGTH
     hac_lags: int | None = c.HAC_LAGS
@@ -129,6 +146,11 @@ class Config:
             raise ValueError(
                 "Invalid return distribution or Student degrees of freedom"
             )
+        if (
+            not np.isfinite(self.bayes_prior_shape) or self.bayes_prior_shape <= 1
+            or not np.isfinite(self.bayes_prior_scale) or self.bayes_prior_scale <= 0
+        ):
+            raise ValueError("Bayesian prior requires finite shape > 1 and scale > 0")
 
 
 def candidate_forecasts(
@@ -142,6 +164,9 @@ def candidate_forecasts(
     """
     ranks = range(cfg.max_rank + 1)
     values = returns.to_numpy()
+    ewma = ewma_variance_path(values.mean(axis=1), cfg.window)
+    sample = []
+    bayes = []
     rows, covariances, bn, absorption, shrinkage = [], [], [], [], []
     for i in range(cfg.window, len(returns)):
         row = signals.iloc[i]
@@ -154,6 +179,8 @@ def candidate_forecasts(
         absorption.append(absorbed)
         rows.append(i)
         shrinkage.append(shrinkage_variance(x))
+        sample.append(sample_variance(x))
+        bayes.append(bayesian_variance(x, cfg.bayes_prior_shape, cfg.bayes_prior_scale))
     if len(rows) < cfg.calibration + c.MIN_EVALUATION_OBSERVATIONS:
         raise ValueError(
             "Need at least calibration+20 candidate forecasts after the rolling window"
@@ -165,7 +192,10 @@ def candidate_forecasts(
     metadata["estimation_end"] = returns.index[np.asarray(rows) - 1]
     risk = tail_forecast(np.asarray(covariances), cfg.distribution, cfg.student_df)
     loss = fz0(metadata["return"].to_numpy()[:, None], risk[1], risk[2])
-    return CandidateForecasts(metadata, risk, loss, np.asarray(shrinkage))
+    return CandidateForecasts(
+        metadata, risk, loss, np.asarray(shrinkage), np.asarray(sample), ewma[rows],
+        np.asarray(bayes),
+    )
 
 
 def make_forecast_frame(
@@ -175,6 +205,9 @@ def make_forecast_frame(
     shrinkage: FloatArray,
     cfg: Config,
     signal: StressSignal,
+    sample: FloatArray,
+    ewma: FloatArray,
+    bayes: FloatArray,
 ) -> tuple[pd.DataFrame, BoolArray]:
     """Select model ranks and assemble one row per evaluation date and model.
 
@@ -190,6 +223,7 @@ def make_forecast_frame(
     selections = {
         c.FIXED_PCA: np.full(len(loss), fixed),
         c.BAI_NG: metadata.bn_rank.to_numpy(),
+        c.ROLLING_PCA: trailing_optimal_path(loss, cfg.calibration, cfg.selection_window),
         c.SADS: adaptive_path(
             loss, regimes, cfg.calibration, cfg.selection_window, cfg.min_regime
         ),
@@ -204,13 +238,17 @@ def make_forecast_frame(
     base["regime_threshold"] = np.asarray(threshold)[indices]
 
     parts = []
-    for name in (*selections, c.LEDOIT_WOLF):
+    variances = {
+        c.LEDOIT_WOLF: shrinkage, c.SAMPLE_VAR: sample, c.EWMA: ewma,
+        c.BAYES_VAR: bayes,
+    }
+    for name in (*selections, *variances):
         part = base.copy()
         part["model"] = name
-        if name == c.LEDOIT_WOLF:
+        if name in variances:
             part["rank"] = np.nan
             forecasts = tail_forecast(
-                shrinkage[indices], cfg.distribution, cfg.student_df
+                variances[name][indices], cfg.distribution, cfg.student_df
             )
         else:
             chosen = selections[name][indices].astype(int)
@@ -242,11 +280,21 @@ def evaluate(
     pivot = _loss_panel(forecasts)
     reference = forecasts[forecasts.model == c.SADS].set_index("date").loc[pivot.index]
     for name, group in forecasts.groupby("model", sort=True):
+        group = group.sort_values("date")
+        mean = group.fz0.mean()
+        se = float(np.sqrt(max(hac_covariance_mean(group.fz0, cfg.hac_lags)[0, 0], 0)))
+        margin = norm.ppf(1 - c.SIGNIFICANCE_LEVEL / 2) * se
         summaries.append(
             dict(
                 model=name,
                 n=len(group),
-                mean_fz0=group.fz0.mean(),
+                mean_fz0=mean,
+                std_fz0=group.fz0.std(ddof=1),
+                hac_se_fz0=se,
+                hac_ci_lower=mean - margin,
+                hac_ci_upper=mean + margin,
+                violation_rate_01=(group["return"] < group.var_01).mean(),
+                violation_rate_025=(group["return"] < group.var_025).mean(),
                 elevated_fz0=group.loc[group.elevated, "fz0"].mean(),
                 lower_fz0=group.loc[~group.elevated, "fz0"].mean(),
                 mean_rank=group["rank"].mean(),
@@ -272,13 +320,22 @@ def evaluate(
             continue
         difference = (pivot[c.SADS] - pivot[other]).to_numpy()
         for regime, test, mask, instrument in comparisons_spec:
+            result = gw_test(difference, mask, cfg.hac_lags, instrument)
+            margin = norm.ppf(1 - c.SIGNIFICANCE_LEVEL / 2) * result["se"]
             comparisons.append(
                 dict(
                     model_a=c.SADS,
                     model_b=other,
                     regime=regime,
                     test=test,
-                    **gw_test(difference, mask, cfg.hac_lags, instrument),
+                    **result,
+                    ci_lower=result["mean_difference"] - margin,
+                    ci_upper=result["mean_difference"] + margin,
+                    significant_improvement=bool(
+                        is_significant_improvement(
+                            result["mean_difference"], result["p_value"]
+                        )
+                    ),
                 )
             )
     rq2 = {
@@ -323,13 +380,19 @@ def crisis_checks(
         adaptive_loss = loss[np.arange(len(loss)), chosen]
         fixed_loss = loss[:, fixed]
         bn_loss = loss[np.arange(len(loss)), metadata.bn_rank.to_numpy()]
-        for name, baseline in ((c.FIXED_PCA, fixed_loss), (c.BAI_NG, bn_loss)):
+        rolling_rank = best_rank(loss[train][-cfg.selection_window :])
+        for name, baseline in (
+            (c.FIXED_PCA, fixed_loss),
+            (c.BAI_NG, bn_loss),
+            (c.ROLLING_PCA, loss[:, rolling_rank]),
+        ):
             rows.append(
                 dict(
                     episode=episode,
                     baseline=name,
                     procedure=c.CRISIS_HOLDOUT_PROCEDURE,
                     fixed_rank=fixed,
+                    rolling_rank=rolling_rank,
                     low_rank=low if (~regimes).any() else np.nan,
                     high_rank=high if regimes.any() else np.nan,
                     **gw_test(adaptive_loss - baseline, heldout, cfg.hac_lags),
@@ -433,6 +496,43 @@ def write_json(path: PathLike, value: object) -> None:
     )
 
 
+def runtime_settings() -> dict[str, object]:
+    """Collect execution environment metadata without requiring git or Linux."""
+    packages = {}
+    for name in c.PACKAGE_NAMES:
+        try:
+            packages[name] = package_metadata.version(name)
+        except package_metadata.PackageNotFoundError:
+            packages[name] = "unavailable"
+    try:
+        commit = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"],
+            cwd=c.PROJECT_DIR,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            timeout=5,
+        ).strip()
+    except (OSError, subprocess.SubprocessError):
+        commit = "unavailable"
+    cpu = platform.processor()
+    if not cpu:
+        try:
+            cpu = next(
+                line.split(":", 1)[1].strip()
+                for line in Path("/proc/cpuinfo").read_text().splitlines()
+                if line.startswith("model name")
+            )
+        except (OSError, StopIteration):
+            cpu = "unavailable"
+    return dict(
+        python=platform.python_version(),
+        packages=packages,
+        git_commit=commit,
+        platform=platform.platform(),
+        cpu=cpu,
+    )
+
+
 def plot_results(forecasts: pd.DataFrame, output: PathLike) -> None:
     """Save rank paths, SADS tail forecasts, and cumulative model scores."""
     reference = forecasts[forecasts.model == c.SADS].set_index("date")
@@ -480,12 +580,14 @@ def run(cfg: Config, output: PathLike) -> dict[StressSignal, SignalResult]:
     signals = align_signals(returns, releases, cfg.volatility_window)
     results: dict[StressSignal, SignalResult] = {}
     with threadpool_limits(limits=c.NUMERICAL_THREADS):
-        metadata, risk, loss, shrinkage = candidate_forecasts(returns, signals, cfg)
+        metadata, risk, loss, shrinkage, sample, ewma, bayes = candidate_forecasts(
+            returns, signals, cfg
+        )
         for signal in c.STRESS_SIGNALS:
             folder = output / signal
             folder.mkdir(exist_ok=True)
             forecasts, regimes = make_forecast_frame(
-                metadata, risk, loss, shrinkage, cfg, signal
+                metadata, risk, loss, shrinkage, cfg, signal, sample, ewma, bayes
             )
             summary, calibration, comparisons, rq2, mcs = evaluate(forecasts, cfg)
             holdout = crisis_checks(metadata, loss, regimes, cfg)
@@ -518,6 +620,7 @@ def run(cfg: Config, output: PathLike) -> dict[StressSignal, SignalResult]:
         output / c.SETTINGS_FILENAME,
         dict(
             parameters=asdict(cfg),
+            environment=runtime_settings(),
             inputs=[fingerprint(path) for path in inputs],
             executed_at_utc=datetime.now(timezone.utc).isoformat(),
             evaluation_start=str(metadata.index[cfg.calibration].date()),

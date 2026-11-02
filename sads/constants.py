@@ -26,6 +26,9 @@ NORMAL_DISTRIBUTION: Final[Distribution] = "normal"
 STUDENT_DISTRIBUTION: Final[Distribution] = "student"
 RETURN_DISTRIBUTION: Final = STUDENT_DISTRIBUTION
 STUDENT_DF: Final = 6.0
+EWMA_DECAY: Final = 0.94
+BAYES_PRIOR_SHAPE: Final = 2.0
+BAYES_PRIOR_SCALE: Final = 0.0001
 BOOTSTRAP_REPLICATIONS: Final = 999
 BOOTSTRAP_BLOCK_LENGTH: Final = 20
 HAC_LAGS: Final[int | None] = None
@@ -64,8 +67,15 @@ FIXED_PCA: Final = "fixed_pca"
 BAI_NG: Final = "bai_ng"
 SADS: Final = "sads"
 LEDOIT_WOLF: Final = "ledoit_wolf"
-MATCHED_BASELINES: Final = (FIXED_PCA, BAI_NG)
-PCA_MODELS: Final = (SADS, FIXED_PCA, BAI_NG)
+ROLLING_PCA: Final = "rolling_pca"
+SAMPLE_VAR: Final = "sample_var"
+EWMA: Final = "ewma"
+BAYES_VAR: Final = "bayes_var"
+MATCHED_BASELINES: Final = (FIXED_PCA, BAI_NG, ROLLING_PCA)
+PCA_MODELS: Final = (SADS, FIXED_PCA, BAI_NG, ROLLING_PCA)
+PACKAGE_NAMES: Final = (
+    "numpy", "pandas", "scipy", "scikit-learn", "matplotlib", "threadpoolctl", "pytest"
+)
 RISK_COLUMNS: Final = ("var_01", "var_025", "es_025")
 VAR_COVERAGE_LEVELS: Final = ((VAR_ALPHA, RISK_COLUMNS[0]), (ES_ALPHA, RISK_COLUMNS[1]))
 RANK_DIAGNOSTICS: Final = (
@@ -96,6 +106,7 @@ HOLDOUT_COLUMNS: Final = (
     "baseline",
     "procedure",
     "fixed_rank",
+    "rolling_rank",
     "low_rank",
     "high_rank",
     *GW_COLUMNS,

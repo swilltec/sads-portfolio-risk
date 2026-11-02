@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 
 from sads.experiment import robustness_summary
+from sads import constants as c
 from sads.statistics import coverage, gw_test, model_confidence_set, rank_regime_test
 
 
@@ -43,23 +44,24 @@ def test_robustness_requires_every_crisis_check_to_pass() -> None:
                 mean_difference=-0.1,
                 p_value=0.01,
             )
-            for b in ("fixed_pca", "bai_ng")
+            for b in c.MATCHED_BASELINES
         ]
     )
     holdout = pd.DataFrame(
         [
             dict(baseline=b, mean_difference=-0.1, p_value=p)
-            for b in ("fixed_pca", "bai_ng")
+            for b in c.MATCHED_BASELINES
             for p in (0.01, 0.01, 0.3)
         ]
     )
     deletion = pd.DataFrame(
         [
             dict(baseline=b, significant_improvement=True)
-            for b in ("fixed_pca", "bai_ng")
+            for b in c.MATCHED_BASELINES
             for _ in range(3)
         ]
     )
     result = robustness_summary(comparisons, holdout, deletion)
     assert result["fixed_pca"]["conclusion"] == "not_robust"
     assert result["bai_ng"]["conclusion"] == "not_robust"
+    assert result[c.ROLLING_PCA]["conclusion"] == "not_robust"
