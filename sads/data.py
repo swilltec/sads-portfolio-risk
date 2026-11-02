@@ -1,5 +1,3 @@
-"""French industry returns and publication-aware stress alignment."""
-
 import hashlib
 import re
 from io import StringIO

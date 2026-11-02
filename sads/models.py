@@ -1,5 +1,3 @@
-"""Factor covariance estimators and portfolio tail forecasts."""
-
 from collections.abc import Iterable
 
 import numpy as np

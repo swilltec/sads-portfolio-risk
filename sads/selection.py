@@ -1,5 +1,3 @@
-"""Rank selection from completed forecast losses."""
-
 import numpy as np
 
 from . import constants as c

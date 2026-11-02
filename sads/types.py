@@ -1,5 +1,3 @@
-"""Shared array, path, and experiment-label types."""
-
 from pathlib import Path
 from typing import Literal, TypeAlias
 

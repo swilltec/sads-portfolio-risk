@@ -1,5 +1,3 @@
-"""Forecast scoring, calibration tests, and model comparison."""
-
 from collections.abc import Sequence
 from typing import TypedDict
 

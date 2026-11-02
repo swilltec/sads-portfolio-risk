@@ -1,5 +1,3 @@
-"""Study defaults, data conventions, numerical tolerances, and output definitions."""
-
 from pathlib import Path
 from typing import Final
 
