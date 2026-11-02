@@ -46,6 +46,43 @@ results["stlfsi"]["comparisons"]
 
 STLFSI4 availability uses an assumed seven-calendar-day publication lag, with same-day releases excluded. Supply `release_calendar` with `observation_date,release_date` columns for historical publication dates. The supplied STLFSI4 history contains revised and back-filled values and is **not real-time vintage data**; the volatility-proxy analysis uses trailing returns. Individual comparison p-values are unadjusted.
 
+## Current results
+
+Snapshot from the saved run on **2026-11-01**. This run used a 252-day estimation window, 252 calibration forecasts, PCA ranks 0–10, a 1,260-forecast selection window, and Student-t tails with df=6. MCS uses 999 stationary-bootstrap replications, mean block length 20, and seed 42.
+
+The tables below summarize the saved [STLFSI4 results](results/stlfsi/summary.csv) and [volatility-signal results](results/realized_vol/summary.csv). Lower mean FZ0 is better. Confidence intervals are normal 95% HAC intervals for each model's mean loss; paired comparisons below test loss differences directly. Only SADS forecasts depend on the stress signal, so each other model appears once.
+
+| Model | Mean FZ0 | 95% HAC CI | 1% VaR violations | 2.5% VaR violations |
+| --- | ---: | --- | ---: | ---: |
+| EWMA | -3.579723 | [-3.662325, -3.497121] | 1.486% | 3.399% |
+| SADS (STLFSI4) | -3.406841 | [-3.546601, -3.267082] | 1.629% | 3.244% |
+| SADS (trailing volatility) | -3.407967 | [-3.547701, -3.268233] | 1.629% | 3.257% |
+| Bayesian variance | -3.406816 | [-3.546894, -3.266737] | 1.616% | 3.283% |
+| Bai–Ng PCA | -3.406627 | [-3.546415, -3.266839] | 1.629% | 3.257% |
+| Rolling loss-optimized PCA | -3.406597 | [-3.546444, -3.266751] | 1.629% | 3.244% |
+| Fixed PCA | -3.406115 | [-3.546088, -3.266143] | 1.629% | 3.257% |
+| Sample variance | -3.403905 | [-3.544907, -3.262903] | 1.641% | 3.296% |
+| Ledoit–Wolf | -3.394132 | [-3.540981, -3.247282] | 1.732% | 3.425% |
+
+Full-sample constant-instrument Giacomini–White comparisons use **SADS minus baseline**: negative differences favor SADS. The p-values below are two-sided HAC tests and are unadjusted for multiple comparisons. Stress-instrument joint tests are reported separately in the CSVs and do not by themselves establish a significant mean-loss improvement.
+
+| Baseline | STLFSI4 loss difference | p-value | Volatility-signal loss difference | p-value |
+| --- | ---: | ---: | ---: | ---: |
+| EWMA | +0.172882 | 0.0004183 | +0.171756 | 0.0004591 |
+| Bayesian variance | -0.000026 | 0.9818 | -0.001151 | 0.2528 |
+| Bai–Ng PCA | -0.000214 | 0.7887 | -0.001340 | 0.001994 |
+| Rolling loss-optimized PCA | -0.000244 | 0.2911 | -0.001369 | 0.09735 |
+| Fixed PCA | -0.000726 | 0.3528 | -0.001851 | 4.512e-05 |
+| Sample variance | -0.002936 | 0.006565 | -0.004062 | 8.988e-06 |
+| Ledoit–Wolf | -0.012710 | 0.001837 | -0.013835 | 0.0006317 |
+
+- **EWMA has the lowest observed mean FZ0** and is the sole survivor of the 95% MCS for both signals. The paired full-sample tests favor EWMA over SADS (p<0.001 for both signals).
+- **Stress conditioning has limited evidence of an incremental gain:** SADS does not significantly outperform rolling loss-optimized PCA at 5% for either signal (p=0.2911 and 0.09735). Its difference from Bayesian variance is also insignificant (p=0.9818 and 0.2528).
+- SADS beats Ledoit–Wolf and sample variance on the full-sample tests for both signals. The volatility-signal version also beats fixed PCA and Bai–Ng, but **no matched PCA comparison passes all predeclared crisis holdout/deletion checks**. See the saved [STLFSI4 evaluation](results/stlfsi/evaluation.json) and [volatility-signal evaluation](results/realized_vol/evaluation.json).
+- **Coverage remains inadequate:** every model exceeds the nominal 1% and 2.5% violation rates, and all Kupiec and conditional-coverage tests reject at 5% in both signal runs. EWMA's better relative loss therefore does not establish adequate absolute VaR calibration. See the [STLFSI4 coverage tests](results/stlfsi/coverage.csv) and [volatility-signal coverage tests](results/realized_vol/coverage.csv).
+
+**Provenance and limitations:** these are pseudo-real-time results with an assumed seven-calendar-day STLFSI4 release lag. STLFSI4 history is revised/back-filled, not real-time vintages. The saved run used Python 3.11.7 with NumPy 2.4.6, pandas 3.1.0, SciPy 1.17.1, scikit-learn 1.9.1, matplotlib 3.11.2, threadpoolctl 3.7.0, and pytest 9.2.0; these package versions differ from the exact pins in `requirements.txt`. This snapshot should therefore be attributed to its recorded environment, rather than described as a run under those pins. Full parameters, package versions, input SHA-256 hashes, and execution time are in [settings.json](results/settings.json). Data and generated outputs are ignored by git; the relative result links become available after running the study locally, and a future download may contain revised observations.
+
 ## Files
 
 `main.py` runs the study using the defaults in `sads/constants.py`. The `sads/` modules contain data alignment, covariance models, rank selection, statistical tests, and the experiment loop. Run the numerical and timing checks with `python -m pytest -q`.
