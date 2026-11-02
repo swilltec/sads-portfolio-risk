@@ -4,7 +4,7 @@ One-day VaR and expected shortfall forecasting for an equal-weighted portfolio o
 
 ## Run
 
-Use Python **3.11.7** and the exact dependency versions in `requirements.txt`. Study defaults are in `sads/constants.py`.
+Use a Python version compatible with the dependencies in `requirements.txt` and study defaults are in `sads/constants.py`.
 
 ```bash
 python3 -m venv .venv
@@ -12,7 +12,7 @@ source .venv/bin/activate
 python -m pip install -r requirements.txt
 python scripts/download_data.py
 python main.py
-python -m pytest -q
+python -m pytest -q # To run tests (Optional)
 ```
 
 The downloader validates both inputs before replacing existing files. If access is blocked, it exits with a clear error; no substitute data or results are generated. The source files are the [French 49 Industry Portfolios daily CSV ZIP](https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/ftp/49_Industry_Portfolios_daily_CSV.zip) and [FRED STLFSI4 CSV](https://fred.stlouisfed.org/graph/fredgraph.csv?id=STLFSI4), saved as `data/49_Industry_Portfolios_Daily.csv` and `data/STLFSI4.csv`.
