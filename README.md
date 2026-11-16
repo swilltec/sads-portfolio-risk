@@ -48,7 +48,7 @@ STLFSI4 availability uses an assumed seven-calendar-day publication lag, with sa
 
 ## Current results
 
-Snapshot from the saved run on **2026-11-01**. This run used a 252-day estimation window, 252 calibration forecasts, PCA ranks 0–10, a 1,260-forecast selection window, and Student-t tails with df=6. MCS uses 999 stationary-bootstrap replications, mean block length 20, and seed 42.
+Snapshot from the saved run on **2026-11-15** (America/New_York), using source commit `4a825d8`. This run used a 252-day estimation window, 252 calibration forecasts, PCA ranks 0–10, a 1,260-forecast selection window, and Student-t tails with df=6. MCS uses 999 stationary-bootstrap replications, mean block length 20, and seed 42.
 
 The tables below summarize the saved [STLFSI4 results](results/stlfsi/summary.csv) and [volatility-signal results](results/realized_vol/summary.csv). Lower mean FZ0 is better. Confidence intervals are normal 95% HAC intervals for each model's mean loss; paired comparisons below test loss differences directly. Only SADS forecasts depend on the stress signal, so each other model appears once.
 
@@ -81,7 +81,7 @@ Full-sample constant-instrument Giacomini–White comparisons use **SADS minus b
 - SADS beats Ledoit–Wolf and sample variance on the full-sample tests for both signals. The volatility-signal version also beats fixed PCA and Bai–Ng, but **no matched PCA comparison passes all predeclared crisis holdout/deletion checks**. See the saved [STLFSI4 evaluation](results/stlfsi/evaluation.json) and [volatility-signal evaluation](results/realized_vol/evaluation.json).
 - **Coverage remains inadequate:** every model exceeds the nominal 1% and 2.5% violation rates, and all Kupiec and conditional-coverage tests reject at 5% in both signal runs. EWMA's better relative loss therefore does not establish adequate absolute VaR calibration. See the [STLFSI4 coverage tests](results/stlfsi/coverage.csv) and [volatility-signal coverage tests](results/realized_vol/coverage.csv).
 
-**Provenance and limitations:** these are pseudo-real-time results with an assumed seven-calendar-day STLFSI4 release lag. STLFSI4 history is revised/back-filled, not real-time vintages. The saved run used Python 3.11.7 with NumPy 2.4.6, pandas 3.1.0, SciPy 1.17.1, scikit-learn 1.9.1, matplotlib 3.11.2, threadpoolctl 3.7.0, and pytest 9.2.0; these package versions differ from the exact pins in `requirements.txt`. This snapshot should therefore be attributed to its recorded environment, rather than described as a run under those pins. Full parameters, package versions, input SHA-256 hashes, and execution time are in [settings.json](results/settings.json). Data and generated outputs are ignored by git; the relative result links become available after running the study locally, and a future download may contain revised observations.
+**Provenance and limitations:** these are pseudo-real-time results with an assumed seven-calendar-day STLFSI4 release lag. STLFSI4 history is revised/back-filled, not real-time vintages. The saved run used Python 3.11.7 with NumPy 1.26.0, pandas 2.2.3, SciPy 1.11.4, scikit-learn 1.7.0, matplotlib 3.9.2, threadpoolctl 3.6.0, and pytest 7.4.0, exactly matching the package pins in `requirements.txt`. Full parameters, package versions, input SHA-256 hashes, and execution time are in [settings.json](results/settings.json). Data and generated outputs are ignored by git; the relative result links become available after running the study locally, and a future download may contain revised observations.
 
 ## Files
 
